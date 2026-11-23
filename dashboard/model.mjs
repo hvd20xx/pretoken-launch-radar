@@ -211,8 +211,11 @@ export function buildFarmPlan(p, impliedValue, launchOdds, ageDays) {
   const tierEv = (impliedValue * 0.03) / estActiveWallets;
   const grossEv = Math.min((proRataEv + tierEv) * launchOdds, minCapital * 0.35);
 
-  // Deduct 90-day opportunity cost (4% annualized => 1.0% over 90d) + execution gas
-  const oppCost = minCapital * 0.01;
+  // Net 90-day capital friction: yield-bearing deposits earn base APY while farming (0.25% slippage/lockup spread),
+  // active DEX/Derivatives LP incurs 0.35% rebalance friction, idle deposits incur 0.50% financing spread.
+  const yieldBearing = ['Lending', 'CDP', 'Yield', 'Yield Aggregator', 'Risk Curators', 'Onchain Capital Allocator', 'RWA', 'Basis Trading'].includes(cat);
+  const frictionRate = yieldBearing ? 0.0025 : (cat === 'Dexs' || cat === 'Derivatives' || cat === 'Perps') ? 0.0035 : 0.005;
+  const oppCost = Number((minCapital * frictionRate).toFixed(2));
   const netEv = Math.round((grossEv - totalGas - oppCost) * 100) / 100;
   const evPerHour = Math.round((netEv / estHours) * 100) / 100;
 

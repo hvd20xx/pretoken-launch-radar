@@ -218,6 +218,7 @@
           <span class="chip dark">SNAPSHOT ${esc(DATA.as_of)}</span>
           <span class="chip">FLOOR ${fmtUsd(DATA.floor_usd)}</span>
           <span class="chip">WATCHLIST ${c.watchlist}/${c.watchlist} COVERED</span>
+          <span class="chip">MODEL: dashboard/model.mjs (0 TRUNCATED)</span>
         </div>
       </header>
 
