@@ -6,7 +6,7 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { boardIssue, buildRadar, dataScript, parseSnapshot } from './lib/model.ts';
+import { boardIssue, buildRadar, dataScript, parseSnapshot } from './dashboard/model.mjs';
 import { buildDossier } from './vendor/makefun-board.ts';
 
 const ROOT_DIR = fileURLToPath(new URL('.', import.meta.url));

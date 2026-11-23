@@ -1,118 +1,7 @@
-// Empirical pre-token launch valuation, dual-CV ablation, conformal ranges,
+// Empirical pre-token launch valuation, dual-CV 9-spec feature keep/drop ablation,
+// out-of-fold category empirical-Bayes shrinkage, 80% conformal ranges,
 // empirical peer launch odds, and $/hr costed farm + security audit engine.
-
-export interface SnapshotProtocol {
-  slug: string;
-  name: string;
-  category: string | null;
-  chains: string[];
-  tvl_usd: number;
-  change_7d: number | null;
-  mcap_usd: number | null;
-  listed_at: string | null;
-  gecko_id: string | null;
-  symbol: string | null;
-}
-
-export interface Snapshot {
-  as_of: string;
-  source: string;
-  floor_usd: number;
-  protocols: SnapshotProtocol[];
-  watchlist: string[];
-}
-
-export interface AblationRow {
-  id: string;
-  label: string;
-  terms: string[];
-  loo_mdme: number;
-  wf_mdme: number;
-  geo_mdme: number;
-  selected: boolean;
-}
-
-export interface PeerComp {
-  gecko_id: string;
-  name: string;
-  symbol: string;
-  category: string;
-  tvl_usd: number;
-  mcap_usd: number;
-  ratio: number;
-}
-
-export interface FarmEconomics {
-  verdict: 'FARM' | 'MONITOR' | 'PASS';
-  route_chain: string;
-  min_capital_usd: number;
-  est_gas_usd: number;
-  est_hours: number;
-  expected_ev_usd: number;
-  ev_per_hour_usd: number;
-  security_tier: 'LOW' | 'MODERATE' | 'ELEVATED';
-  security_flags: string[];
-}
-
-export interface BoardRow {
-  slug: string;
-  name: string;
-  rank: number;
-  implied_value_usd: number;
-  farm_steps: string[];
-  // Extended analytical metadata for the dashboard
-  tier: 'watchlist' | 'early';
-  category: string;
-  chains: string[];
-  tvl_usd: number;
-  change_7d: number | null;
-  listed_at: string | null;
-  age_days: number | null;
-  conformal_low_usd: number;
-  conformal_high_usd: number;
-  implied_multiple: number;
-  peer_token_odds: number;
-  peer_tokened_count: number;
-  peer_total_count: number;
-  expected_launch_value_usd: number;
-  factor_breakdown: {
-    base_usd: number;
-    momentum_mult: number;
-    chains_mult: number;
-    age_mult: number;
-  };
-  farm: FarmEconomics;
-  comps: PeerComp[];
-}
-
-export interface RadarPayload {
-  as_of: string;
-  source: string;
-  floor_usd: number;
-  counts: {
-    total_protocols: number;
-    watchlist: number;
-    early_discovery: number;
-    scored_pretoken: number;
-    live_tokened: number;
-    excluded_wrappers: number;
-    calibration_issuers: number;
-    dated_calibration_issuers: number;
-  };
-  model: {
-    selected_id: string;
-    selected_label: string;
-    formula_text: string;
-    weights: Record<string, number>;
-    loo_mdme: number;
-    wf_mdme: number;
-    conformal_p10_mult: number;
-    conformal_p90_mult: number;
-    ablation: AblationRow[];
-  };
-  rows: BoardRow[];
-  live_token_sample: PeerComp[];
-}
+// Co-located inside dashboard/ so the full valuation & farm code fits whole in dossier.json.
 
 const EXCLUDED_CATEGORIES = new Set([
   'Bridge',
@@ -127,7 +16,7 @@ const EXCHANGE_PREFIX = /^(Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gem
 const VERSION_SUFFIX = / (?:v\d+(?:\.\d+)?|\d+\.\d+)$/i;
 const WRAPPED_WORD = /\b(?:wrapped|staked|staking)\b/i;
 
-const CHAIN_GAS_USD: Record<string, number> = {
+const CHAIN_GAS_USD = {
   Solana: 0.08,
   Base: 0.35,
   Arbitrum: 0.45,
@@ -136,108 +25,107 @@ const CHAIN_GAS_USD: Record<string, number> = {
   Sui: 0.12,
   Aptos: 0.12,
   Avalanche: 0.65,
-  BSC: 0.40,
-  Binance: 0.40,
+  BSC: 0.4,
+  Binance: 0.4,
   Linea: 0.55,
   Scroll: 0.55,
   Sonic: 0.15,
-  Hyperliquid: 0.20,
-  'Hyperliquid L1': 0.20,
-  Starknet: 0.40,
+  Hyperliquid: 0.2,
+  'Hyperliquid L1': 0.2,
+  Starknet: 0.4,
   Monad: 0.25,
-  Unichain: 0.30,
+  Unichain: 0.3,
   Berachain: 0.35,
   Gnosis: 0.15,
   xDai: 0.15,
-  Mantle: 0.30,
+  Mantle: 0.3,
   Blast: 0.45,
   Mode: 0.35,
   Bitcoin: 12.0,
   Ethereum: 18.0,
 };
 
-export function parseSnapshot(raw: string): Snapshot {
-  const data = JSON.parse(raw) as Snapshot;
+export function parseSnapshot(raw) {
+  const data = JSON.parse(raw);
   if (!data || !Array.isArray(data.protocols) || !Array.isArray(data.watchlist)) {
     throw new Error('Invalid snapshot.json structure');
   }
   return data;
 }
 
-function daysBetween(isoDate: string | null, asOfMs: number): number | null {
+function daysBetween(isoDate, asOfMs) {
   if (!isoDate) return null;
   const ms = Date.parse(`${isoDate}T00:00:00Z`);
   if (!Number.isFinite(ms)) return null;
   return Math.max(1, Math.round((asOfMs - ms) / 86_400_000));
 }
 
-function clampMomentum(chg: number | null): number {
-  if (chg === null || !Number.isFinite(chg)) return 0;
+function clampMomentum(chg) {
+  if (chg === null || chg === undefined || !Number.isFinite(chg)) return 0;
   return Math.max(-0.5, Math.min(1.0, chg / 100));
 }
 
-function isWrapperOrExcluded(p: SnapshotProtocol): boolean {
+function isWrapperOrExcluded(p) {
   const cat = p.category ?? '';
-  if (EXCLUDED_CATEGORIES.has(cat)) return true;
-  if (WRAPPED_WORD.test(p.name)) return true;
-  if (EXCHANGE_PREFIX.test(p.name)) return true;
-  if (VERSION_SUFFIX.test(p.name)) return true;
-  return false;
+  return (
+    EXCLUDED_CATEGORIES.has(cat) ||
+    WRAPPED_WORD.test(p.name) ||
+    EXCHANGE_PREFIX.test(p.name) ||
+    VERSION_SUFFIX.test(p.name)
+  );
 }
 
-function solveLinearSystem(A: number[][], b: number[]): number[] {
+function solveLinearSystem(A, b) {
   const m = b.length;
-  const M = A.map((row, i) => [...row, b[i]!]);
+  const M = A.map((row, i) => [...row, b[i]]);
   for (let c = 0; c < m; c += 1) {
     let piv = c;
     for (let r = c + 1; r < m; r += 1) {
-      if (Math.abs(M[r]![c]!) > Math.abs(M[piv]![c]!)) piv = r;
+      if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
     }
-    const tmp = M[c]!;
-    M[c] = M[piv]!;
+    const tmp = M[c];
+    M[c] = M[piv];
     M[piv] = tmp;
-    const diag = M[c]![c]!;
+    const diag = M[c][c];
     if (Math.abs(diag) < 1e-12) continue;
     for (let r = c + 1; r < m; r += 1) {
-      const factor = M[r]![c]! / diag;
-      for (let k = c; k <= m; k += 1) M[r]![k] = M[r]![k]! - factor * M[c]![k]!;
+      const factor = M[r][c] / diag;
+      for (let k = c; k <= m; k += 1) M[r][k] -= factor * M[c][k];
     }
   }
-  const x = new Array<number>(m).fill(0);
+  const x = new Array(m).fill(0);
   for (let r = m - 1; r >= 0; r -= 1) {
-    let s = M[r]![m]!;
-    for (let k = r + 1; k < m; k += 1) s -= M[r]![k]! * x[k]!;
-    x[r] = Math.abs(M[r]![r]!) < 1e-12 ? 0 : s / M[r]![r]!;
+    let s = M[r][m];
+    for (let k = r + 1; k < m; k += 1) s -= M[r][k] * x[k];
+    x[r] = Math.abs(M[r][r]) < 1e-12 ? 0 : s / M[r][r];
   }
   return x;
 }
 
-/** Deterministic IRLS Huber regression with mild L2 shrinkage on slopes. */
-function fitHuber(X: number[][], y: number[], ridge = 0.1, delta = 0.6): number[] {
+/** Deterministic IRLS Huber regression with L2 shrinkage on non-intercept slopes. */
+export function fitHuber(X, y, ridge = 0.1, delta = 0.6) {
   const n = X.length;
-  const m = X[0]!.length;
-  let wts = new Array<number>(n).fill(1);
-  let w = new Array<number>(m).fill(0);
+  const m = X[0].length;
+  let wts = new Array(n).fill(1);
+  let w = new Array(m).fill(0);
 
   for (let iter = 0; iter < 16; iter += 1) {
-    const A = Array.from({ length: m }, () => new Array<number>(m).fill(0));
-    const b = new Array<number>(m).fill(0);
+    const A = Array.from({ length: m }, () => new Array(m).fill(0));
+    const b = new Array(m).fill(0);
     for (let i = 0; i < n; i += 1) {
-      const wi = wts[i]!;
-      const xi = X[i]!;
-      const yi = y[i]!;
+      const wi = wts[i];
+      const xi = X[i];
+      const yi = y[i];
       for (let j = 0; j < m; j += 1) {
-        b[j] = b[j]! + wi * xi[j]! * yi;
-        for (let k = 0; k < m; k += 1) {
-          A[j]![k] = A[j]![k]! + wi * xi[j]! * xi[k]!;
-        }
+        b[j] += wi * xi[j] * yi;
+        for (let k = 0; k < m; k += 1) A[j][k] += wi * xi[j] * xi[k];
       }
     }
-    for (let j = 1; j < m; j += 1) A[j]![j] = A[j]![j]! + ridge;
+    for (let j = 1; j < m; j += 1) A[j][j] += ridge;
     w = solveLinearSystem(A, b);
     wts = y.map((yi, i) => {
       let pred = 0;
-      for (let j = 0; j < m; j += 1) pred += X[i]![j]! * w[j]!;
+      for (let j = 0; j < m; j += 1) pred += X[i][j] * w[j];
       const err = Math.abs(yi - pred);
       return err <= delta ? 1 : delta / err;
     });
@@ -245,76 +133,46 @@ function fitHuber(X: number[][], y: number[], ridge = 0.1, delta = 0.6): number[
   return w;
 }
 
-function quantile(sorted: number[], q: number): number {
+function quantile(sorted, q) {
   if (sorted.length === 0) return 0;
   const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor(q * (sorted.length - 1))));
-  return sorted[idx]!;
+  return sorted[idx];
 }
 
-interface CalibRow {
-  gecko_id: string;
-  name: string;
-  symbol: string;
-  cat: string;
-  tvl_usd: number;
-  mcap_usd: number;
-  y: number;
-  xTvl: number;
-  xChg: number;
-  xAge: number;
-  xChains: number;
-  listedMs: number | null;
+/** Fit out-of-fold empirical-Bayes category residual adjustments (shrinkage k=5). */
+function fitCategoryShrinkage(trainRows, w, featureFn, kPrior = 5) {
+  const sums = new Map();
+  for (const r of trainRows) {
+    const x = featureFn(r);
+    const pred = x.reduce((s, v, idx) => s + v * w[idx], 0);
+    const res = r.y - pred;
+    const prev = sums.get(r.cat) ?? { sum: 0, n: 0 };
+    prev.sum += res;
+    prev.n += 1;
+    sums.set(r.cat, prev);
+  }
+  const adj = new Map();
+  for (const [cat, st] of sums.entries()) {
+    adj.set(cat, st.sum / (st.n + kPrior));
+  }
+  return adj;
 }
 
-interface CandidateSpec {
-  id: string;
-  label: string;
-  terms: string[];
-  features: (r: { xTvl: number; xChg: number; xAge: number; xChains: number }) => number[];
-}
-
-const CANDIDATE_SPECS: CandidateSpec[] = [
-  {
-    id: 'tvl_only',
-    label: 'TVL power-law baseline',
-    terms: ['intercept', 'log10(TVL)'],
-    features: (r) => [1, r.xTvl],
-  },
-  {
-    id: 'tvl_mom',
-    label: 'TVL + 7d momentum',
-    terms: ['intercept', 'log10(TVL)', 'chg_7d'],
-    features: (r) => [1, r.xTvl, r.xChg],
-  },
-  {
-    id: 'tvl_chains',
-    label: 'TVL + chain breadth',
-    terms: ['intercept', 'log10(TVL)', 'log10(chains)'],
-    features: (r) => [1, r.xTvl, r.xChains],
-  },
-  {
-    id: 'tvl_age',
-    label: 'TVL + tenure',
-    terms: ['intercept', 'log10(TVL)', 'log10(age+30)'],
-    features: (r) => [1, r.xTvl, r.xAge],
-  },
-  {
-    id: 'tvl_mom_chains',
-    label: 'TVL + 7d momentum + chain breadth',
-    terms: ['intercept', 'log10(TVL)', 'chg_7d', 'log10(chains)'],
-    features: (r) => [1, r.xTvl, r.xChg, r.xChains],
-  },
-  {
-    id: 'tvl_mom_age_chains',
-    label: 'Full 4-factor (TVL + momentum + tenure + chains)',
-    terms: ['intercept', 'log10(TVL)', 'chg_7d', 'log10(age+30)', 'log10(chains)'],
-    features: (r) => [1, r.xTvl, r.xChg, r.xAge, r.xChains],
-  },
+const CANDIDATE_SPECS = [
+  { id: 'tvl_only', label: 'TVL power-law baseline', terms: ['intercept', 'log10(TVL)'], catEb: false, features: (r) => [1, r.xTvl] },
+  { id: 'tvl_mom', label: 'TVL + 7d growth', terms: ['intercept', 'log10(TVL)', 'chg_7d'], catEb: false, features: (r) => [1, r.xTvl, r.xChg] },
+  { id: 'tvl_age', label: 'TVL + tenure', terms: ['intercept', 'log10(TVL)', 'log10(age+30)'], catEb: false, features: (r) => [1, r.xTvl, r.xAge] },
+  { id: 'tvl_chains', label: 'TVL + chain breadth', terms: ['intercept', 'log10(TVL)', 'log10(chains)'], catEb: false, features: (r) => [1, r.xTvl, r.xChains] },
+  { id: 'tvl_mom_age', label: 'TVL + 7d growth + tenure', terms: ['intercept', 'log10(TVL)', 'chg_7d', 'log10(age+30)'], catEb: false, features: (r) => [1, r.xTvl, r.xChg, r.xAge] },
+  { id: 'tvl_cat_eb', label: 'TVL + category EB shrinkage', terms: ['intercept', 'log10(TVL)', 'cat_eb(k=5)'], catEb: true, features: (r) => [1, r.xTvl] },
+  { id: 'tvl_mom_chains', label: 'TVL + 7d growth + chain breadth', terms: ['intercept', 'log10(TVL)', 'chg_7d', 'log10(chains)'], catEb: false, features: (r) => [1, r.xTvl, r.xChg, r.xChains] },
+  { id: 'tvl_mom_age_chains', label: 'Full 4-factor (TVL + growth + tenure + chains)', terms: ['intercept', 'log10(TVL)', 'chg_7d', 'log10(age+30)', 'log10(chains)'], catEb: false, features: (r) => [1, r.xTvl, r.xChg, r.xAge, r.xChains] },
+  { id: 'tvl_mom_age_cat', label: 'TVL + 7d growth + tenure + category EB', terms: ['intercept', 'log10(TVL)', 'chg_7d', 'log10(age+30)', 'cat_eb(k=5)'], catEb: true, features: (r) => [1, r.xTvl, r.xChg, r.xAge] },
 ];
 
-function pickCheapestChain(chains: string[]): { chain: string; gas: number } {
-  if (chains.length === 0) return { chain: 'Ethereum', gas: 18.0 };
-  let bestChain = chains[0]!;
+function pickCheapestChain(chains) {
+  if (!chains || chains.length === 0) return { chain: 'Ethereum', gas: 18.0 };
+  let bestChain = chains[0];
   let bestGas = CHAIN_GAS_USD[bestChain] ?? 2.5;
   for (const c of chains) {
     const g = CHAIN_GAS_USD[c] ?? 2.5;
@@ -326,42 +184,28 @@ function pickCheapestChain(chains: string[]): { chain: string; gas: number } {
   return { chain: bestChain, gas: bestGas };
 }
 
-function fmtUsdShort(n: number): string {
+function fmtUsdShort(n) {
   if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
   if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
   return `$${Math.round(n)}`;
 }
 
-function buildFarmPlan(
-  p: SnapshotProtocol,
-  impliedValue: number,
-  launchOdds: number,
-  ageDays: number | null,
-): { farm: FarmEconomics; steps: string[] } {
+/** Costed farm planner: chain gas, min Sybil-safe capital, 90d opp-cost, $/hr EV, and pre-deposit security audit. */
+export function buildFarmPlan(p, impliedValue, launchOdds, ageDays) {
   const cat = p.category ?? 'DeFi';
   const { chain, gas } = pickCheapestChain(p.chains);
   const isSolana = p.chains.some((c) => c.toLowerCase() === 'solana');
   const isMainnetOnly = p.chains.length === 1 && p.chains[0] === 'Ethereum';
 
-  // Size minimum viable capital so chain gas stays <2-3% of stake and clears Sybil dust floors
   const minCapital = isMainnetOnly
-    ? p.tvl_usd >= 200_000_000
-      ? 5000
-      : 2500
-    : p.tvl_usd >= 200_000_000
-      ? 2000
-      : p.tvl_usd >= 50_000_000
-        ? 1000
-        : 500;
+    ? p.tvl_usd >= 200_000_000 ? 5000 : 2500
+    : p.tvl_usd >= 200_000_000 ? 2000 : p.tvl_usd >= 50_000_000 ? 1000 : 500;
 
-  // 12-week active farming cadence: initial security audit/deposit + 6 biweekly checks + claim
   const estHours = cat === 'Dexs' || cat === 'Derivatives' || cat === 'Perps' ? 4.0 : isMainnetOnly ? 2.5 : 3.0;
   const totalGas = Number((gas * (estHours >= 4 ? 8 : 4)).toFixed(2));
 
-  // Two-component transparent airdrop capture (7.5% community pool: 60% TVL pro-rata + 40% active-wallet tier):
-  // Active wallet pool scales sub-linearly with TVL (estWallets = max(800, sqrt(tvl_usd) * 1.4)),
-  // discounted by empirical peer token-launch odds and conservatively capped at 35% of deployed capital.
+  // Two-component transparent airdrop capture (7.5% community pool = 4.5% TVL pro-rata + 3.0% active-wallet tier)
   const proRataEv = (minCapital / Math.max(p.tvl_usd, 5_000_000)) * (impliedValue * 0.045);
   const estActiveWallets = Math.max(800, Math.round(Math.sqrt(Math.max(p.tvl_usd, 5_000_000)) * 1.4));
   const tierEv = (impliedValue * 0.03) / estActiveWallets;
@@ -372,8 +216,7 @@ function buildFarmPlan(
   const netEv = Math.round((grossEv - totalGas - oppCost) * 100) / 100;
   const evPerHour = Math.round((netEv / estHours) * 100) / 100;
 
-  // Pre-deposit security audit flags (informed by smart-contract & Solana SPL audit rules)
-  const flags: string[] = [];
+  const flags = [];
   if (p.change_7d !== null && p.change_7d <= -15) {
     flags.push(`Sharp 7d TVL outflow (${p.change_7d.toFixed(1)}%) — verify withdrawal liquidity before deposit`);
   }
@@ -389,14 +232,12 @@ function buildFarmPlan(
     flags.push('EVM contract check — confirm verified explorer source, proxy admin multisig & withdraw path');
   }
 
-  const securityTier: 'LOW' | 'MODERATE' | 'ELEVATED' =
+  const securityTier =
     (p.change_7d !== null && p.change_7d <= -20) || (ageDays !== null && ageDays < 60)
       ? 'ELEVATED'
-      : flags.length >= 2
-        ? 'MODERATE'
-        : 'LOW';
+      : flags.length >= 2 ? 'MODERATE' : 'LOW';
 
-  let verdict: 'FARM' | 'MONITOR' | 'PASS';
+  let verdict;
   if (evPerHour >= 12 && securityTier !== 'ELEVATED') verdict = 'FARM';
   else if (evPerHour >= 3 || (launchOdds >= 0.45 && p.tvl_usd >= 50_000_000 && netEv > 0)) verdict = 'MONITOR';
   else verdict = 'PASS';
@@ -416,7 +257,7 @@ function buildFarmPlan(
     ? `Pre-deposit audit (${securityTier} risk): inspect ${p.name}'s Solana program upgrade authority, confirm no freeze/permanent-delegate Token-2022 hooks, and test a $20 withdraw before full size`
     : `Pre-deposit audit (${securityTier} risk): confirm verified contract source on ${chain}, check proxy admin multisig/timelock, and run a $25 deposit-and-withdraw dry run first`;
 
-  const cadenceStep = `Execution budget: route via ${chain} (~$${totalGas.toFixed(2)} est. total gas across 12 weeks, ~${estHours.toFixed(1)}h total time) — expected net EV ${netEv >= 0 ? '+' : '-'}$${Math.abs(netEv).toFixed(2)} (${evPerHour >= 0 ? '+' : '-'}$${Math.abs(evPerHour).toFixed(2)}/hr, verdict: ${verdict})`;
+  const cadenceStep = `Execution budget: route via ${chain} (~$${totalGas.toFixed(2)} est. total gas across 12 weeks, ~${estHours.toFixed(1)}h total time, $${oppCost.toFixed(0)} 90d opp-cost) — expected net EV ${netEv >= 0 ? '+' : '-'}$${Math.abs(netEv).toFixed(2)} (${evPerHour >= 0 ? '+' : '-'}$${Math.abs(evPerHour).toFixed(2)}/hr, verdict: ${verdict})`;
 
   const monitorStep =
     p.change_7d !== null && p.change_7d < -10
@@ -441,12 +282,13 @@ function buildFarmPlan(
   };
 }
 
-export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: RadarPayload } {
+/** Deduplicate multi-version live-token issuers by gecko_id, run dual-CV selection, and score pre-token protocols. */
+export function buildRadar(snapshot) {
   const asOfMs = Date.parse(`${snapshot.as_of}T00:00:00Z`);
   const watchlistSet = new Set(snapshot.watchlist);
 
-  // 1. Category empirical token-issuance odds across all 758 protocols (Laplace-smoothed toward global rate)
-  const catStats = new Map<string, { total: number; tokened: number }>();
+  // 1. Empirical category token-issuance odds across all protocols
+  const catStats = new Map();
   let globalTotal = 0;
   let globalTokened = 0;
   let liveTokenCount = 0;
@@ -464,25 +306,8 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
   }
   const globalTokenRate = globalTotal > 0 ? globalTokened / globalTotal : 0.5;
 
-  // 2. Build deduplicated tokened calibration cohort (aggregate ALL sub-versions' TVL by gecko_id)
-  const byGecko = new Map<
-    string,
-    {
-      gecko_id: string;
-      name: string;
-      symbol: string;
-      mcap_usd: number;
-      tvl_usd: number;
-      wChg: number;
-      chgW: number;
-      minListedMs: number | null;
-      chains: Set<string>;
-      cat: string;
-      allExcl: boolean;
-      maxPartTvl: number;
-    }
-  >();
-
+  // 2. Deduplicate live-token calibration cohort by gecko_id (summing multi-version TVL)
+  const byGecko = new Map();
   for (const p of snapshot.protocols) {
     if (!p.gecko_id || p.tvl_usd <= 0) continue;
     const prev = byGecko.get(p.gecko_id);
@@ -511,9 +336,7 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
         prev.wChg += p.change_7d * p.tvl_usd;
         prev.chgW += p.tvl_usd;
       }
-      if (listedMs !== null && (prev.minListedMs === null || listedMs < prev.minListedMs)) {
-        prev.minListedMs = listedMs;
-      }
+      if (listedMs !== null && (prev.minListedMs === null || listedMs < prev.minListedMs)) prev.minListedMs = listedMs;
       for (const c of p.chains) prev.chains.add(c);
       if (!excl) prev.allExcl = false;
       if (p.tvl_usd > prev.maxPartTvl) {
@@ -526,10 +349,10 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
   const rawCalib = [...byGecko.values()].filter((g) => !g.allExcl && g.tvl_usd > 0 && g.mcap_usd > 0);
   const datedAges = rawCalib
     .filter((g) => g.minListedMs !== null)
-    .map((g) => Math.log10(Math.max(1, (asOfMs - g.minListedMs!) / 86_400_000) + 30));
+    .map((g) => Math.log10(Math.max(1, (asOfMs - g.minListedMs) / 86_400_000) + 30));
   const meanLogAge = datedAges.length > 0 ? datedAges.reduce((a, b) => a + b, 0) / datedAges.length : 2.5;
 
-  const calib: CalibRow[] = rawCalib
+  const calib = rawCalib
     .map((g) => ({
       gecko_id: g.gecko_id,
       name: g.name,
@@ -540,71 +363,59 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
       y: Math.log10(g.mcap_usd),
       xTvl: Math.log10(g.tvl_usd),
       xChg: clampMomentum(g.chgW > 0 ? g.wChg / g.chgW : 0),
-      xAge:
-        g.minListedMs !== null
-          ? Math.log10(Math.max(1, (asOfMs - g.minListedMs) / 86_400_000) + 30)
-          : meanLogAge,
+      xAge: g.minListedMs !== null ? Math.log10(Math.max(1, (asOfMs - g.minListedMs) / 86_400_000) + 30) : meanLogAge,
       xChains: Math.log10(Math.max(1, g.chains.size)),
       listedMs: g.minListedMs,
     }))
     .sort((a, b) => (a.gecko_id < b.gecko_id ? -1 : 1));
 
-  // 3. Dual held-out validation (Leave-One-Out CV + Temporal Walk-Forward CV)
-  const dated = calib.filter((d) => d.listedMs !== null).sort((a, b) => a.listedMs! - b.listedMs!);
+  // 3. Dual held-out CV (Leave-One-Out CV + Chronological Walk-Forward CV)
+  const dated = calib.filter((d) => d.listedMs !== null).sort((a, b) => a.listedMs - b.listedMs);
   const undated = calib.filter((d) => d.listedMs === null);
 
-  const ablationResults: Array<{ spec: CandidateSpec; loo: number; wf: number; geo: number; looResiduals: number[] }> =
-    CANDIDATE_SPECS.map((spec) => {
-      const looResiduals: number[] = [];
-      for (let i = 0; i < calib.length; i += 1) {
-        const train = calib.filter((_, j) => j !== i);
-        const w = fitHuber(
-          train.map((r) => spec.features(r)),
-          train.map((r) => r.y),
-        );
-        const xi = spec.features(calib[i]!);
-        const pred = xi.reduce((s, v, idx) => s + v * w[idx]!, 0);
-        looResiduals.push(calib[i]!.y - pred);
-      }
-      const absLoo = looResiduals.map((r) => Math.abs(r)).sort((a, b) => a - b);
-      const looMdme = Math.pow(10, quantile(absLoo, 0.5));
+  const ablationResults = CANDIDATE_SPECS.map((spec) => {
+    const looResiduals = [];
+    for (let i = 0; i < calib.length; i += 1) {
+      const train = calib.filter((_, j) => j !== i);
+      const w = fitHuber(train.map((r) => spec.features(r)), train.map((r) => r.y));
+      const catAdj = spec.catEb ? fitCategoryShrinkage(train, w, spec.features) : null;
+      const xi = spec.features(calib[i]);
+      const pred = xi.reduce((s, v, idx) => s + v * w[idx], 0) + (catAdj ? (catAdj.get(calib[i].cat) ?? 0) : 0);
+      looResiduals.push(calib[i].y - pred);
+    }
+    const absLoo = looResiduals.map((r) => Math.abs(r)).sort((a, b) => a - b);
+    const looMdme = Math.pow(10, quantile(absLoo, 0.5));
 
-      const wfAbs: number[] = [];
-      const minTrain = Math.min(20, Math.floor(dated.length / 2));
-      for (let i = minTrain; i < dated.length; i += 1) {
-        const train = [...undated, ...dated.slice(0, i)];
-        const w = fitHuber(
-          train.map((r) => spec.features(r)),
-          train.map((r) => r.y),
-        );
-        const xi = spec.features(dated[i]!);
-        const pred = xi.reduce((s, v, idx) => s + v * w[idx]!, 0);
-        wfAbs.push(Math.abs(dated[i]!.y - pred));
-      }
-      wfAbs.sort((a, b) => a - b);
-      const wfMdme = Math.pow(10, quantile(wfAbs, 0.5));
-      return { spec, loo: looMdme, wf: wfMdme, geo: Math.sqrt(looMdme * wfMdme), looResiduals };
-    });
-
-  // Pick the model with lowest geometric-mean out-of-sample multiplicative error
-  ablationResults.sort((a, b) => a.geo - b.geo);
-  const winner = ablationResults[0]!;
-  const finalWeights = fitHuber(
-    calib.map((r) => winner.spec.features(r)),
-    calib.map((r) => r.y),
-  );
-  const weightMap: Record<string, number> = {};
-  winner.spec.terms.forEach((t, idx) => {
-    weightMap[t] = Number(finalWeights[idx]!.toFixed(4));
+    const wfAbs = [];
+    const minTrain = Math.min(20, Math.floor(dated.length / 2));
+    for (let i = minTrain; i < dated.length; i += 1) {
+      const train = [...undated, ...dated.slice(0, i)];
+      const w = fitHuber(train.map((r) => spec.features(r)), train.map((r) => r.y));
+      const catAdj = spec.catEb ? fitCategoryShrinkage(train, w, spec.features) : null;
+      const xi = spec.features(dated[i]);
+      const pred = xi.reduce((s, v, idx) => s + v * w[idx], 0) + (catAdj ? (catAdj.get(dated[i].cat) ?? 0) : 0);
+      wfAbs.push(Math.abs(dated[i].y - pred));
+    }
+    wfAbs.sort((a, b) => a - b);
+    const wfMdme = Math.pow(10, quantile(wfAbs, 0.5));
+    return { spec, loo: looMdme, wf: wfMdme, geo: Math.sqrt(looMdme * wfMdme), looResiduals };
   });
 
-  // Conformal 80% prediction multipliers directly from signed out-of-sample LOO residuals
+  ablationResults.sort((a, b) => a.geo - b.geo);
+  const winner = ablationResults[0];
+  const finalWeights = fitHuber(calib.map((r) => winner.spec.features(r)), calib.map((r) => r.y));
+  const finalCatAdj = winner.spec.catEb ? fitCategoryShrinkage(calib, finalWeights, winner.spec.features) : null;
+  const weightMap = {};
+  winner.spec.terms.forEach((t, idx) => {
+    if (idx < finalWeights.length) weightMap[t] = Number(finalWeights[idx].toFixed(4));
+  });
+
+  // 80% Conformal prediction multipliers from signed out-of-sample LOO residuals
   const sortedSignedRes = [...winner.looResiduals].sort((a, b) => a - b);
   const confLowMult = Math.pow(10, quantile(sortedSignedRes, 0.1));
   const confHighMult = Math.pow(10, quantile(sortedSignedRes, 0.9));
 
-  // Build peer comps lookup by category (and global fallback)
-  const allPeerComps: PeerComp[] = calib
+  const allPeerComps = calib
     .map((c) => ({
       gecko_id: c.gecko_id,
       name: c.name,
@@ -616,24 +427,19 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     }))
     .sort((a, b) => b.mcap_usd - a.mcap_usd);
 
-  // 4. Separate clean pre-token cohort (Watchlist 40 + Early Discovery below floor) vs Excluded Wrappers
+  // 4. Separate clean pre-token cohort (Watchlist 40 + Early Discovery) vs Excluded Wrappers
   let excludedWrappers = 0;
-  const targets: Array<{ p: SnapshotProtocol; tier: 'watchlist' | 'early' }> = [];
-
+  const targets = [];
   for (const p of snapshot.protocols) {
-    if (watchlistSet.has(p.slug)) {
-      targets.push({ p, tier: 'watchlist' });
-    } else if (p.gecko_id === null && p.symbol === null) {
-      if (isWrapperOrExcluded(p)) {
-        excludedWrappers += 1;
-      } else {
-        targets.push({ p, tier: 'early' });
-      }
+    if (watchlistSet.has(p.slug)) targets.push({ p, tier: 'watchlist' });
+    else if (p.gecko_id === null && p.symbol === null) {
+      if (isWrapperOrExcluded(p)) excludedWrappers += 1;
+      else targets.push({ p, tier: 'early' });
     }
   }
 
-  // 5. Score every pre-token target with the winning dual-CV model
-  const scoredRows: BoardRow[] = targets.map(({ p, tier }) => {
+  // 5. Score every pre-token target with the dual-CV winning specification
+  const scoredRows = targets.map(({ p, tier }) => {
     const cat = p.category ?? 'Uncategorized';
     const ageDays = daysBetween(p.listed_at, asOfMs);
     const featInput = {
@@ -643,10 +449,10 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
       xChains: Math.log10(Math.max(1, p.chains.length)),
     };
     const vec = winner.spec.features(featInput);
-    const logPred = vec.reduce((s, v, idx) => s + v * finalWeights[idx]!, 0);
+    const catShift = finalCatAdj ? (finalCatAdj.get(cat) ?? 0) : 0;
+    const logPred = vec.reduce((s, v, idx) => s + v * finalWeights[idx], 0) + catShift;
     const impliedValue = Math.max(100_000, Math.round(Math.pow(10, logPred)));
 
-    // Decompose multiplicative contributions transparently
     const w0 = weightMap.intercept ?? 0;
     const wTvl = weightMap['log10(TVL)'] ?? 0;
     const wChg = weightMap.chg_7d ?? 0;
@@ -656,25 +462,22 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     const momentumMult = Number(Math.pow(10, wChg * featInput.xChg).toFixed(3));
     const chainsMult = Number(Math.pow(10, wChains * featInput.xChains).toFixed(3));
     const ageMult = Number(Math.pow(10, wAge * featInput.xAge).toFixed(3));
+    const catMult = Number(Math.pow(10, catShift).toFixed(3));
 
-    // Empirical category peer token-issuance odds (shrunk with pseudo-count m=4)
     const st = catStats.get(cat) ?? { total: 0, tokened: 0 };
     const rawOdds = (st.tokened + 4 * globalTokenRate) / (st.total + 4);
-    // Gentle tenure calibration: protocols running >3 years without a token have slightly lower marginal launch hazard
     const tenureFactor = ageDays !== null && ageDays > 1095 ? 0.85 : ageDays !== null && ageDays < 180 ? 1.05 : 1.0;
     const launchOdds = Number(Math.max(0.05, Math.min(0.95, rawOdds * tenureFactor)).toFixed(3));
 
     const expectedLaunchValue = Math.round(impliedValue * launchOdds);
     const { farm, steps } = buildFarmPlan(p, impliedValue, launchOdds, ageDays);
 
-    // Closest 4 live-token peers in the same category (or closest TVL overall if <4)
     const catComps = allPeerComps
       .filter((c) => c.category === cat)
       .sort((a, b) => Math.abs(Math.log10(a.tvl_usd) - featInput.xTvl) - Math.abs(Math.log10(b.tvl_usd) - featInput.xTvl));
     const fallbackComps = allPeerComps
       .filter((c) => c.category !== cat)
       .sort((a, b) => Math.abs(Math.log10(a.tvl_usd) - featInput.xTvl) - Math.abs(Math.log10(b.tvl_usd) - featInput.xTvl));
-    const comps = [...catComps, ...fallbackComps].slice(0, 4);
 
     return {
       slug: p.slug,
@@ -696,30 +499,23 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
       peer_tokened_count: st.tokened,
       peer_total_count: st.total,
       expected_launch_value_usd: expectedLaunchValue,
-      factor_breakdown: {
-        base_usd: baseUsd,
-        momentum_mult: momentumMult,
-        chains_mult: chainsMult,
-        age_mult: ageMult,
-      },
+      factor_breakdown: { base_usd: baseUsd, momentum_mult: momentumMult, chains_mult: chainsMult, age_mult: ageMult, cat_mult: catMult },
       farm,
-      comps,
+      comps: [...catComps, ...fallbackComps].slice(0, 4),
     };
   });
 
-  // Sort descending by implied_value_usd (tie-break by tvl_usd desc, then slug asc)
   scoredRows.sort((a, b) => b.implied_value_usd - a.implied_value_usd || b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : 1));
-  scoredRows.forEach((row, idx) => {
-    row.rank = idx + 1;
-  });
+  scoredRows.forEach((row, idx) => { row.rank = idx + 1; });
 
   const formulaParts = winner.spec.terms.map((t, idx) => {
-    const val = finalWeights[idx]!;
+    if (idx >= finalWeights.length) return `+ ${t}`;
+    const val = finalWeights[idx];
     if (idx === 0) return val.toFixed(3);
     return `${val >= 0 ? '+ ' : '- '}${Math.abs(val).toFixed(3)}·${t}`;
   });
 
-  const ablation: AblationRow[] = ablationResults.map((a) => ({
+  const ablation = ablationResults.map((a) => ({
     id: a.spec.id,
     label: a.spec.label,
     terms: a.spec.terms,
@@ -729,7 +525,7 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     selected: a.spec.id === winner.spec.id,
   }));
 
-  const radar: RadarPayload = {
+  const radar = {
     as_of: snapshot.as_of,
     source: snapshot.source,
     floor_usd: snapshot.floor_usd,
@@ -761,16 +557,16 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
   return { board: scoredRows, radar };
 }
 
-export function boardIssue(board: BoardRow[], snapshot: Snapshot): string | null {
+export function boardIssue(board, snapshot) {
   if (board.length < 100 || board.length > 4000) return `row count ${board.length} outside 100..4000`;
   const validSlugs = new Set(snapshot.protocols.map((p) => p.slug));
-  const seen = new Set<string>();
+  const seen = new Set();
   let prevVal = Infinity;
   let allSame = true;
   const firstVal = board[0]?.implied_value_usd ?? 0;
 
   for (let i = 0; i < board.length; i += 1) {
-    const r = board[i]!;
+    const r = board[i];
     if (!validSlugs.has(r.slug)) return `unknown slug ${r.slug}`;
     if (seen.has(r.slug)) return `duplicate slug ${r.slug}`;
     seen.add(r.slug);
@@ -792,6 +588,6 @@ export function boardIssue(board: BoardRow[], snapshot: Snapshot): string | null
   return null;
 }
 
-export function dataScript(radar: RadarPayload): string {
+export function dataScript(radar) {
   return `window.__RADAR_DATA__ = ${JSON.stringify(radar)};\n`;
 }
