@@ -136,12 +136,12 @@
           <div class="dm">
             <div class="dm-l">80% Conformal Range</div>
             <div class="dm-v">${fmtUsd(row.conformal_low_usd)}–${fmtUsd(row.conformal_high_usd)}</div>
-            <div class="dm-s">Empirical LOO p10–p90 band</div>
+            <div class="dm-s">Range honesty: LOO ${DATA.model.loo_cov80_pct}% · WF ${DATA.model.wf_cov80_pct}%</div>
           </div>
           <div class="dm">
-            <div class="dm-l">Peer Token Odds</div>
+            <div class="dm-l">Peer Token Odds (Bayes)</div>
             <div class="dm-v">${Math.round(row.peer_token_odds * 100)}%</div>
-            <div class="dm-s">${row.peer_tokened_count}/${row.peer_total_count} ${esc(row.category)} peers · EV ${fmtUsd(row.expected_launch_value_usd)}</div>
+            <div class="dm-s">${row.peer_tokened_count}/${row.peer_total_count} ${esc(row.category)} + tenure · EV ${fmtUsd(row.expected_launch_value_usd)}</div>
           </div>
         </div>
 
@@ -150,7 +150,7 @@
           <div class="dec-box"><span>TVL Power Base</span>${fmtUsd(row.factor_breakdown.base_usd)}</div>
           <div class="dec-box"><span>7d Momentum</span>×${row.factor_breakdown.momentum_mult.toFixed(2)} (${row.change_7d === null ? 'n/a' : `${row.change_7d >= 0 ? '+' : ''}${row.change_7d.toFixed(1)}%`})</div>
           <div class="dec-box"><span>Chain Breadth</span>×${row.factor_breakdown.chains_mult.toFixed(2)} (${row.chains.length} ch.)</div>
-          <div class="dec-box"><span>Tenure Term</span>${row.factor_breakdown.age_mult === 1 ? 'Dropped (WF CV)' : `×${row.factor_breakdown.age_mult.toFixed(2)}`}</div>
+          <div class="dec-box"><span>Category EB (k=6)</span>×${row.factor_breakdown.cat_mult.toFixed(2)} (${esc(row.category)})</div>
         </div>
 
         <div class="section-h">Costed Farm Verdict &amp; Execution Economics</div>
@@ -234,9 +234,9 @@
           <div class="kpi-sub">Median multiplicative error across ${c.calibration_issuers} issuers (${c.dated_calibration_issuers} dated)</div>
         </div>
         <div class="kpi">
-          <div class="kpi-label">80% Conformal Range Band</div>
-          <div class="kpi-val">×${m.conformal_p10_mult.toFixed(2)} to ×${m.conformal_p90_mult.toFixed(2)}</div>
-          <div class="kpi-sub">Calibrated directly from signed out-of-sample LOO residuals</div>
+          <div class="kpi-label">Range Honesty &amp; Peer Odds CV</div>
+          <div class="kpi-val">LOO ${m.loo_cov80_pct}% · WF ${m.wf_cov80_pct}%</div>
+          <div class="kpi-sub">80% band (×${m.conformal_p10_mult.toFixed(2)}..×${m.conformal_p90_mult.toFixed(2)}) · Odds Brier +${m.odds_brier_skill_pct}%</div>
         </div>
         <div class="kpi amber">
           <div class="kpi-label">Costed Farm Verdicts (Filtered)</div>

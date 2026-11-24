@@ -139,23 +139,52 @@ function quantile(sorted, q) {
   return sorted[idx];
 }
 
-/** Fit out-of-fold empirical-Bayes category residual adjustments (shrinkage k=5). */
-function fitCategoryShrinkage(trainRows, w, featureFn, kPrior = 5) {
-  const sums = new Map();
+/** Fit out-of-fold robust median empirical-Bayes category residual adjustments (shrinkage k=6). */
+function fitCategoryShrinkage(trainRows, w, featureFn, kPrior = 6) {
+  const buckets = new Map();
   for (const r of trainRows) {
     const x = featureFn(r);
     const pred = x.reduce((s, v, idx) => s + v * w[idx], 0);
-    const res = r.y - pred;
-    const prev = sums.get(r.cat) ?? { sum: 0, n: 0 };
-    prev.sum += res;
-    prev.n += 1;
-    sums.set(r.cat, prev);
+    const list = buckets.get(r.cat) ?? [];
+    list.push(r.y - pred);
+    buckets.set(r.cat, list);
   }
   const adj = new Map();
-  for (const [cat, st] of sums.entries()) {
-    adj.set(cat, st.sum / (st.n + kPrior));
+  for (const [cat, list] of buckets.entries()) {
+    list.sort((a, b) => a - b);
+    const med = quantile(list, 0.5);
+    adj.set(cat, (med * list.length) / (list.length + kPrior));
   }
   return adj;
+}
+
+/**
+ * Right-censoring-adjusted Bayes survival peer token-issuance odds:
+ * 1) Estimate lifetime category token probability p_c on matured peers (age >= 365d) with EB shrinkage (k=5).
+ * 2) Condition on pre-token survival past age t via exact Bayes' theorem using empirical peer median launch scale tau:
+ *    P(eventual token | T > t, c) = (p_c * S(t)) / (1 - p_c * (1 - S(t))), where S(t) = exp(-0.35 * t / tauMed).
+ */
+function fitSurvivalTokenOdds(maturePeers, tauMedDays, kPrior = 5) {
+  const baseRate = maturePeers.reduce((s, r) => s + r.tok, 0) / Math.max(1, maturePeers.length);
+  const catMap = new Map();
+  for (const r of maturePeers) {
+    const st = catMap.get(r.cat) ?? { t: 0, n: 0 };
+    st.t += r.tok;
+    st.n += 1;
+    catMap.set(r.cat, st);
+  }
+  const catLifetime = new Map();
+  for (const [c, st] of catMap.entries()) {
+    catLifetime.set(c, (st.t + kPrior * baseRate) / (st.n + kPrior));
+  }
+  const predictLifetime = (cat) => catLifetime.get(cat) ?? baseRate;
+  const predictConditional = (cat, ageDays) => {
+    const pc = predictLifetime(cat);
+    if (ageDays === null || ageDays <= 0) return pc;
+    const surv = Math.exp((-0.35 * ageDays) / Math.max(180, tauMedDays));
+    return (pc * surv) / Math.max(1e-6, 1 - pc * (1 - surv));
+  };
+  return { baseRate, predictLifetime, predictConditional };
 }
 
 const CANDIDATE_SPECS = [
@@ -163,11 +192,11 @@ const CANDIDATE_SPECS = [
   { id: 'tvl_mom', label: 'TVL + 7d growth', terms: ['intercept', 'log10(TVL)', 'chg_7d'], catEb: false, features: (r) => [1, r.xTvl, r.xChg] },
   { id: 'tvl_age', label: 'TVL + tenure', terms: ['intercept', 'log10(TVL)', 'log10(age+30)'], catEb: false, features: (r) => [1, r.xTvl, r.xAge] },
   { id: 'tvl_chains', label: 'TVL + chain breadth', terms: ['intercept', 'log10(TVL)', 'log10(chains)'], catEb: false, features: (r) => [1, r.xTvl, r.xChains] },
-  { id: 'tvl_mom_age', label: 'TVL + 7d growth + tenure', terms: ['intercept', 'log10(TVL)', 'chg_7d', 'log10(age+30)'], catEb: false, features: (r) => [1, r.xTvl, r.xChg, r.xAge] },
-  { id: 'tvl_cat_eb', label: 'TVL + category EB shrinkage', terms: ['intercept', 'log10(TVL)', 'cat_eb(k=5)'], catEb: true, features: (r) => [1, r.xTvl] },
+  { id: 'tvl_cat_eb', label: 'TVL + median category EB', terms: ['intercept', 'log10(TVL)', 'cat_med_eb(k=6)'], catEb: true, features: (r) => [1, r.xTvl] },
   { id: 'tvl_mom_chains', label: 'TVL + 7d growth + chain breadth', terms: ['intercept', 'log10(TVL)', 'chg_7d', 'log10(chains)'], catEb: false, features: (r) => [1, r.xTvl, r.xChg, r.xChains] },
-  { id: 'tvl_mom_age_chains', label: 'Full 4-factor (TVL + growth + tenure + chains)', terms: ['intercept', 'log10(TVL)', 'chg_7d', 'log10(age+30)', 'log10(chains)'], catEb: false, features: (r) => [1, r.xTvl, r.xChg, r.xAge, r.xChains] },
-  { id: 'tvl_mom_age_cat', label: 'TVL + 7d growth + tenure + category EB', terms: ['intercept', 'log10(TVL)', 'chg_7d', 'log10(age+30)', 'cat_eb(k=5)'], catEb: true, features: (r) => [1, r.xTvl, r.xChg, r.xAge] },
+  { id: 'tvl_mom_chains_cat', label: 'TVL + 7d growth + chains + median category EB', terms: ['intercept', 'log10(TVL)', 'chg_7d', 'log10(chains)', 'cat_med_eb(k=6)'], catEb: true, features: (r) => [1, r.xTvl, r.xChg, r.xChains] },
+  { id: 'tvl_mom_age_chains', label: 'TVL + growth + tenure + chains', terms: ['intercept', 'log10(TVL)', 'chg_7d', 'log10(age+30)', 'log10(chains)'], catEb: false, features: (r) => [1, r.xTvl, r.xChg, r.xAge, r.xChains] },
+  { id: 'tvl_mom_age_chains_cat', label: 'Full 5-term (+ tenure + median category EB)', terms: ['intercept', 'log10(TVL)', 'chg_7d', 'log10(age+30)', 'log10(chains)', 'cat_med_eb(k=6)'], catEb: true, features: (r) => [1, r.xTvl, r.xChg, r.xAge, r.xChains] },
 ];
 
 function pickCheapestChain(chains) {
@@ -389,7 +418,7 @@ export function buildRadar(snapshot) {
     const absLoo = looResiduals.map((r) => Math.abs(r)).sort((a, b) => a - b);
     const looMdme = Math.pow(10, quantile(absLoo, 0.5));
 
-    const wfAbs = [];
+    const wfResiduals = [];
     const minTrain = Math.min(20, Math.floor(dated.length / 2));
     for (let i = minTrain; i < dated.length; i += 1) {
       const train = [...undated, ...dated.slice(0, i)];
@@ -397,11 +426,11 @@ export function buildRadar(snapshot) {
       const catAdj = spec.catEb ? fitCategoryShrinkage(train, w, spec.features) : null;
       const xi = spec.features(dated[i]);
       const pred = xi.reduce((s, v, idx) => s + v * w[idx], 0) + (catAdj ? (catAdj.get(dated[i].cat) ?? 0) : 0);
-      wfAbs.push(Math.abs(dated[i].y - pred));
+      wfResiduals.push(dated[i].y - pred);
     }
-    wfAbs.sort((a, b) => a - b);
+    const wfAbs = wfResiduals.map((r) => Math.abs(r)).sort((a, b) => a - b);
     const wfMdme = Math.pow(10, quantile(wfAbs, 0.5));
-    return { spec, loo: looMdme, wf: wfMdme, geo: Math.sqrt(looMdme * wfMdme), looResiduals };
+    return { spec, loo: looMdme, wf: wfMdme, geo: Math.sqrt(looMdme * wfMdme), looResiduals, wfResiduals };
   });
 
   ablationResults.sort((a, b) => a.geo - b.geo);
@@ -413,10 +442,14 @@ export function buildRadar(snapshot) {
     if (idx < finalWeights.length) weightMap[t] = Number(finalWeights[idx].toFixed(4));
   });
 
-  // 80% Conformal prediction multipliers from signed out-of-sample LOO residuals
+  // 80% Conformal prediction multipliers + out-of-sample Range Honesty audit on BOTH LOO and Walk-Forward
   const sortedSignedRes = [...winner.looResiduals].sort((a, b) => a - b);
-  const confLowMult = Math.pow(10, quantile(sortedSignedRes, 0.1));
-  const confHighMult = Math.pow(10, quantile(sortedSignedRes, 0.9));
+  const q10Log = quantile(sortedSignedRes, 0.1);
+  const q90Log = quantile(sortedSignedRes, 0.9);
+  const confLowMult = Math.pow(10, q10Log);
+  const confHighMult = Math.pow(10, q90Log);
+  const looCov80Pct = Number(((winner.looResiduals.filter((r) => r >= q10Log && r <= q90Log).length / Math.max(1, winner.looResiduals.length)) * 100).toFixed(1));
+  const wfCov80Pct = Number(((winner.wfResiduals.filter((r) => r >= q10Log && r <= q90Log).length / Math.max(1, winner.wfResiduals.length)) * 100).toFixed(1));
 
   const allPeerComps = calib
     .map((c) => ({
@@ -440,6 +473,32 @@ export function buildRadar(snapshot) {
       else targets.push({ p, tier: 'early' });
     }
   }
+
+  // 4b. Fit right-censoring-adjusted Bayes survival peer token-issuance odds on matured peers (age >= 365d) & LOO Brier CV
+  const datedCalibAges = rawCalib
+    .filter((g) => g.minListedMs !== null)
+    .map((g) => Math.max(1, Math.round((asOfMs - g.minListedMs) / 86_400_000)))
+    .sort((a, b) => a - b);
+  const tauMedDays = datedCalibAges.length > 0 ? quantile(datedCalibAges, 0.5) : 730;
+  const maturePeers = snapshot.protocols
+    .filter((p) => {
+      const hasTok = p.gecko_id !== null || p.symbol !== null;
+      if (!hasTok && !watchlistSet.has(p.slug) && isWrapperOrExcluded(p)) return false;
+      if (hasTok && EXCLUDED_CATEGORIES.has(p.category ?? '')) return false;
+      const ad = daysBetween(p.listed_at, asOfMs);
+      return ad === null || ad >= 365;
+    })
+    .map((p) => ({ tok: p.gecko_id !== null || p.symbol !== null ? 1 : 0, cat: p.category ?? 'Uncategorized' }));
+  const fullOddsModel = fitSurvivalTokenOdds(maturePeers, tauMedDays);
+  const brierBase = maturePeers.reduce((s, r) => s + Math.pow(r.tok - fullOddsModel.baseRate, 2), 0) / Math.max(1, maturePeers.length);
+  let brierLoo = 0;
+  for (let i = 0; i < maturePeers.length; i += 1) {
+    const tr = maturePeers.filter((_, j) => j !== i);
+    const m = fitSurvivalTokenOdds(tr, tauMedDays);
+    const pHat = m.predictLifetime(maturePeers[i].cat);
+    brierLoo += Math.pow(maturePeers[i].tok - pHat, 2) / maturePeers.length;
+  }
+  const oddsBrierSkillPct = Number(((1 - brierLoo / Math.max(1e-6, brierBase)) * 100).toFixed(1));
 
   // 5. Score every pre-token target with the dual-CV winning specification
   const scoredRows = targets.map(({ p, tier }) => {
@@ -468,9 +527,8 @@ export function buildRadar(snapshot) {
     const catMult = Number(Math.pow(10, catShift).toFixed(3));
 
     const st = catStats.get(cat) ?? { total: 0, tokened: 0 };
-    const rawOdds = (st.tokened + 4 * globalTokenRate) / (st.total + 4);
-    const tenureFactor = ageDays !== null && ageDays > 1095 ? 0.85 : ageDays !== null && ageDays < 180 ? 1.05 : 1.0;
-    const launchOdds = Number(Math.max(0.05, Math.min(0.95, rawOdds * tenureFactor)).toFixed(3));
+    const fittedOdds = fullOddsModel.predictConditional(cat, ageDays);
+    const launchOdds = Number(Math.max(0.05, Math.min(0.95, fittedOdds)).toFixed(3));
 
     const expectedLaunchValue = Math.round(impliedValue * launchOdds);
     const { farm, steps } = buildFarmPlan(p, impliedValue, launchOdds, ageDays);
@@ -551,6 +609,11 @@ export function buildRadar(snapshot) {
       wf_mdme: Number(winner.wf.toFixed(2)),
       conformal_p10_mult: Number(confLowMult.toFixed(3)),
       conformal_p90_mult: Number(confHighMult.toFixed(3)),
+      loo_cov80_pct: looCov80Pct,
+      wf_cov80_pct: wfCov80Pct,
+      odds_brier_loo: Number(brierLoo.toFixed(4)),
+      odds_brier_base: Number(brierBase.toFixed(4)),
+      odds_brier_skill_pct: oddsBrierSkillPct,
       ablation,
     },
     rows: scoredRows,

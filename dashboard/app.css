@@ -279,12 +279,12 @@ input[type="search"] { width: 175px; }
 .workspace.has-detail {
   grid-template-columns: minmax(0, 1.08fr) minmax(520px, 1.02fr);
 }
-.workspace.has-detail table th:nth-child(4),
-.workspace.has-detail table td:nth-child(4),
-.workspace.has-detail table th:nth-child(6),
-.workspace.has-detail table td:nth-child(6),
-.workspace.has-detail table th:nth-child(7),
-.workspace.has-detail table td:nth-child(7) {
+.workspace.has-detail .table-wrap table th:nth-child(4),
+.workspace.has-detail .table-wrap table td:nth-child(4),
+.workspace.has-detail .table-wrap table th:nth-child(6),
+.workspace.has-detail .table-wrap table td:nth-child(6),
+.workspace.has-detail .table-wrap table th:nth-child(7),
+.workspace.has-detail .table-wrap table td:nth-child(7) {
   display: none;
 }
 
