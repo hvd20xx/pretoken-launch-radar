@@ -103,7 +103,7 @@ function main(): void {
   process.stdout.write(
     `pretoken radar: scored ${board.length} protocols (${radar.counts.watchlist} watchlist + ${radar.counts.early_discovery} early; ` +
       `${radar.counts.live_tokened} live-tokened, ${radar.counts.excluded_wrappers} wrappers excluded)\n` +
-      `model: ${radar.model.selected_label} | LOO x${radar.model.loo_mdme} | WF x${radar.model.wf_mdme} | ` +
+      `model: ${radar.model.selected_label} | LOO x${radar.model.loo_mdme} | WF x${radar.model.wf_mdme} | Cat x${radar.model.cat_mdme} | ` +
       `wrote ${dashFiles.length} dashboard files, ${shotFiles.length} screenshots, dossier.json\n`,
   );
 }

@@ -134,9 +134,9 @@
             <div class="dm-s">${row.implied_multiple.toFixed(2)}× TVL (${fmtUsd(row.tvl_usd)})</div>
           </div>
           <div class="dm">
-            <div class="dm-l">80% Conformal Range</div>
+            <div class="dm-l">Adaptive 80% Conformal Band</div>
             <div class="dm-v">${fmtUsd(row.conformal_low_usd)}–${fmtUsd(row.conformal_high_usd)}</div>
-            <div class="dm-s">Range honesty: LOO ${DATA.model.loo_cov80_pct}% · WF ${DATA.model.wf_cov80_pct}%</div>
+            <div class="dm-s">LOO ${DATA.model.loo_cov80_pct}% · WF ${DATA.model.wf_cov80_pct}% · Cat ${DATA.model.cat_cov80_pct}%</div>
           </div>
           <div class="dm">
             <div class="dm-l">Peer Token Odds (Bayes)</div>
@@ -145,7 +145,7 @@
           </div>
         </div>
 
-        <div class="section-h">Valuation Decomposition (Dual-CV Selected Model)</div>
+        <div class="section-h">Valuation Decomposition (Triple-CV Selected Model)</div>
         <div class="decomp-grid">
           <div class="dec-box"><span>TVL Power Base</span>${fmtUsd(row.factor_breakdown.base_usd)}</div>
           <div class="dec-box"><span>7d Momentum</span>×${row.factor_breakdown.momentum_mult.toFixed(2)} (${row.change_7d === null ? 'n/a' : `${row.change_7d >= 0 ? '+' : ''}${row.change_7d.toFixed(1)}%`})</div>
@@ -153,12 +153,12 @@
           <div class="dec-box"><span>Category EB (k=6)</span>×${row.factor_breakdown.cat_mult.toFixed(2)} (${esc(row.category)})</div>
         </div>
 
-        <div class="section-h">Costed Farm Verdict &amp; Execution Economics</div>
+        <div class="section-h">Costed Farm Verdict, Sybil Dilution &amp; Execution Economics</div>
         <div class="farm-econ ${vCls}">
           <div class="fe-item"><span>Verdict / Chain</span><strong>${row.farm.verdict} · ${esc(row.farm.route_chain)}</strong></div>
-          <div class="fe-item"><span>Min Capital</span><strong>${fmtUsd(row.farm.min_capital_usd)}</strong></div>
+          <div class="fe-item"><span>Min Cap / Dilution</span><strong>${fmtUsd(row.farm.min_capital_usd)} · ${row.farm.dilution_risk}</strong></div>
           <div class="fe-item"><span>Est. Gas / Time</span><strong>$${row.farm.est_gas_usd.toFixed(2)} / ${row.farm.est_hours.toFixed(1)}h</strong></div>
-          <div class="fe-item"><span>Net EV / Hour</span><strong>${fmtSignedUsd(row.farm.ev_per_hour_usd)}/hr</strong></div>
+          <div class="fe-item"><span>Net $/hr (Ann. ROI)</span><strong>${fmtSignedUsd(row.farm.ev_per_hour_usd)}/h (${row.farm.ann_roi_pct >= 0 ? '+' : ''}${row.farm.ann_roi_pct}%)</strong></div>
         </div>
 
         <div class="section-h">Actionable Farm Plan &amp; Pre-Deposit Security Audit (${row.farm_steps.length} Steps)</div>
@@ -210,15 +210,15 @@
     root.innerHTML = `
       <header class="mast">
         <div>
-          <div class="mast-kicker">PRE-TOKEN LAUNCH RADAR · DUAL-CV ECONOMETRIC LEDGER</div>
+          <div class="mast-kicker">PRE-TOKEN LAUNCH RADAR · TRIPLE-CV ECONOMETRIC LEDGER</div>
           <h1>Pre-Token Protocols Ranked by Implied Launch Value</h1>
-          <div class="mast-sub">Records no token on DefiLlama (not proof no token exists) · Every term fitted on ${c.calibration_issuers} deduplicated live-token issuers and selected via Leave-One-Out + Walk-Forward CV</div>
+          <div class="mast-sub">Records no token on DefiLlama (not proof no token exists) · Every term fitted on ${c.calibration_issuers} deduplicated live-token issuers &amp; validated via LOO + Walk-Forward + Category-Block CV</div>
         </div>
         <div class="mast-meta">
           <span class="chip dark">SNAPSHOT ${esc(DATA.as_of)}</span>
           <span class="chip">FLOOR ${fmtUsd(DATA.floor_usd)}</span>
           <span class="chip">WATCHLIST ${c.watchlist}/${c.watchlist} COVERED</span>
-          <span class="chip">MODEL: dashboard/model.mjs (0 TRUNCATED)</span>
+          <span class="chip">SOURCE: dashboard/model.mjs (100% WHOLE)</span>
         </div>
       </header>
 
@@ -229,19 +229,19 @@
           <div class="kpi-sub">Active view: ${filtered.length} protocols · ${fmtUsd(totalImplied)} combined implied</div>
         </div>
         <div class="kpi teal">
-          <div class="kpi-label">Dual Held-Out Validation</div>
-          <div class="kpi-val">LOO ×${m.loo_mdme.toFixed(2)} · WF ×${m.wf_mdme.toFixed(2)}</div>
-          <div class="kpi-sub">Median multiplicative error across ${c.calibration_issuers} issuers (${c.dated_calibration_issuers} dated)</div>
+          <div class="kpi-label">Triple Held-Out Validation</div>
+          <div class="kpi-val">LOO ×${m.loo_mdme.toFixed(2)} · WF ×${m.wf_mdme.toFixed(2)} · Cat ×${m.cat_mdme.toFixed(2)}</div>
+          <div class="kpi-sub">Median mult. error across ${c.calibration_issuers} issuers (${c.calibration_categories} cats, ${c.dated_calibration_issuers} dated)</div>
         </div>
         <div class="kpi">
-          <div class="kpi-label">Range Honesty &amp; Peer Odds CV</div>
-          <div class="kpi-val">LOO ${m.loo_cov80_pct}% · WF ${m.wf_cov80_pct}%</div>
-          <div class="kpi-sub">80% band (×${m.conformal_p10_mult.toFixed(2)}..×${m.conformal_p90_mult.toFixed(2)}) · Odds Brier +${m.odds_brier_skill_pct}%</div>
+          <div class="kpi-label">Adaptive 80% Range &amp; Odds CV</div>
+          <div class="kpi-val">LOO ${m.loo_cov80_pct}% · WF ${m.wf_cov80_pct}% · Cat ${m.cat_cov80_pct}%</div>
+          <div class="kpi-sub">EB category-scaled 80% band · Survival Odds Brier +${m.odds_brier_skill_pct}%</div>
         </div>
         <div class="kpi amber">
           <div class="kpi-label">Costed Farm Verdicts (Filtered)</div>
           <div class="kpi-val">${farmCount} FARM <span style="font-size:12px;color:var(--muted)">(top ${topEvRow ? fmtSignedUsd(topEvRow.farm.ev_per_hour_usd) + '/hr' : 'n/a'})</span></div>
-          <div class="kpi-sub">Net of chain gas, 90d opp. cost &amp; pre-deposit security audit</div>
+          <div class="kpi-sub">Net of chain gas, 90d friction, Sybil dilution &amp; contract audit</div>
         </div>
       </section>
 
@@ -267,12 +267,12 @@
 
         <div class="panel">
           <div class="panel-head">
-            <span class="panel-title">Model Spec &amp; Dual-CV Feature Ablation (Huber IRLS)</span>
-            <span style="font-family:var(--mono);font-size:10.5px;color:var(--emerald);font-weight:700">Selected: ${esc(m.selected_label)}</span>
+            <span class="panel-title">Model Spec &amp; 9-Spec Keep/Drop Ablation (Huber IRLS)</span>
+            <span style="font-family:var(--mono);font-size:10.5px;color:var(--emerald);font-weight:700">KEEP ★ ${esc(m.selected_label)}</span>
           </div>
           <div class="formula-line">${esc(m.formula_text)}</div>
           <div class="ablation-mini">
-            ${m.ablation.map((a) => `<span class="abl-tag ${a.selected ? 'win' : ''}">${a.selected ? '★ ' : ''}${esc(a.id)}: LOO ×${a.loo_mdme} / WF ×${a.wf_mdme}</span>`).join('')}
+            ${m.ablation.map((a) => `<span class="abl-tag ${a.selected ? 'win' : ''}">${a.selected ? 'KEEP ★ ' : 'DROP · '}${esc(a.id)}: ×${a.loo_mdme} / ×${a.wf_mdme} / ×${a.cat_mdme}</span>`).join('')}
           </div>
         </div>
       </section>

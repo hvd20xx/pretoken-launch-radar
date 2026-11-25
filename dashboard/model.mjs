@@ -1,7 +1,7 @@
-// Empirical pre-token launch valuation, dual-CV 9-spec feature keep/drop ablation,
-// out-of-fold category empirical-Bayes shrinkage, 80% conformal ranges,
-// empirical peer launch odds, and $/hr costed farm + security audit engine.
-// Co-located inside dashboard/ so the full valuation & farm code fits whole in dossier.json.
+// Empirical pre-token launch valuation, triple-CV 9-spec feature keep/drop ablation
+// (Leave-One-Out + Walk-Forward + Held-Out Category-Block CV), out-of-fold category
+// empirical-Bayes shrinkage, adaptive 80% conformal bands, survival peer launch odds,
+// and $/hr costed farm + Sybil dilution + security audit engine.
 
 const EXCLUDED_CATEGORIES = new Set([
   'Bridge',
@@ -17,32 +17,11 @@ const VERSION_SUFFIX = / (?:v\d+(?:\.\d+)?|\d+\.\d+)$/i;
 const WRAPPED_WORD = /\b(?:wrapped|staked|staking)\b/i;
 
 const CHAIN_GAS_USD = {
-  Solana: 0.08,
-  Base: 0.35,
-  Arbitrum: 0.45,
-  Optimism: 0.35,
-  Polygon: 0.25,
-  Sui: 0.12,
-  Aptos: 0.12,
-  Avalanche: 0.65,
-  BSC: 0.4,
-  Binance: 0.4,
-  Linea: 0.55,
-  Scroll: 0.55,
-  Sonic: 0.15,
-  Hyperliquid: 0.2,
-  'Hyperliquid L1': 0.2,
-  Starknet: 0.4,
-  Monad: 0.25,
-  Unichain: 0.3,
-  Berachain: 0.35,
-  Gnosis: 0.15,
-  xDai: 0.15,
-  Mantle: 0.3,
-  Blast: 0.45,
-  Mode: 0.35,
-  Bitcoin: 12.0,
-  Ethereum: 18.0,
+  Solana: 0.08, Base: 0.35, Arbitrum: 0.45, Optimism: 0.35, Polygon: 0.25,
+  Sui: 0.12, Aptos: 0.12, Avalanche: 0.65, BSC: 0.4, Binance: 0.4,
+  Linea: 0.55, Scroll: 0.55, Sonic: 0.15, Hyperliquid: 0.2, 'Hyperliquid L1': 0.2,
+  Starknet: 0.4, Monad: 0.25, Unichain: 0.3, Berachain: 0.35, Gnosis: 0.15,
+  xDai: 0.15, Mantle: 0.3, Blast: 0.45, Mode: 0.35, Bitcoin: 12.0, Ethereum: 18.0,
 };
 
 export function parseSnapshot(raw) {
@@ -108,7 +87,6 @@ export function fitHuber(X, y, ridge = 0.1, delta = 0.6) {
   const m = X[0].length;
   let wts = new Array(n).fill(1);
   let w = new Array(m).fill(0);
-
   for (let iter = 0; iter < 16; iter += 1) {
     const A = Array.from({ length: m }, () => new Array(m).fill(0));
     const b = new Array(m).fill(0);
@@ -139,7 +117,7 @@ function quantile(sorted, q) {
   return sorted[idx];
 }
 
-/** Fit out-of-fold robust median empirical-Bayes category residual adjustments (shrinkage k=6). */
+/** Out-of-fold median empirical-Bayes category residual adjustments (shrinkage k=6). */
 function fitCategoryShrinkage(trainRows, w, featureFn, kPrior = 6) {
   const buckets = new Map();
   for (const r of trainRows) {
@@ -158,12 +136,7 @@ function fitCategoryShrinkage(trainRows, w, featureFn, kPrior = 6) {
   return adj;
 }
 
-/**
- * Right-censoring-adjusted Bayes survival peer token-issuance odds:
- * 1) Estimate lifetime category token probability p_c on matured peers (age >= 365d) with EB shrinkage (k=5).
- * 2) Condition on pre-token survival past age t via exact Bayes' theorem using empirical peer median launch scale tau:
- *    P(eventual token | T > t, c) = (p_c * S(t)) / (1 - p_c * (1 - S(t))), where S(t) = exp(-0.35 * t / tauMed).
- */
+/** Right-censoring-adjusted Bayes survival peer token-issuance odds on matured peers (age >= 365d). */
 function fitSurvivalTokenOdds(maturePeers, tauMedDays, kPrior = 5) {
   const baseRate = maturePeers.reduce((s, r) => s + r.tok, 0) / Math.max(1, maturePeers.length);
   const catMap = new Map();
@@ -205,10 +178,7 @@ function pickCheapestChain(chains) {
   let bestGas = CHAIN_GAS_USD[bestChain] ?? 2.5;
   for (const c of chains) {
     const g = CHAIN_GAS_USD[c] ?? 2.5;
-    if (g < bestGas) {
-      bestGas = g;
-      bestChain = c;
-    }
+    if (g < bestGas) { bestGas = g; bestChain = c; }
   }
   return { chain: bestChain, gas: bestGas };
 }
@@ -220,7 +190,7 @@ function fmtUsdShort(n) {
   return `$${Math.round(n)}`;
 }
 
-/** Costed farm planner: chain gas, min Sybil-safe capital, 90d opp-cost, $/hr EV, and pre-deposit security audit. */
+/** Costed farm planner: chain gas, min Sybil-safe capital, 90d opp-cost, Sybil dilution, $/hr EV, and security audit. */
 export function buildFarmPlan(p, impliedValue, launchOdds, ageDays) {
   const cat = p.category ?? 'DeFi';
   const { chain, gas } = pickCheapestChain(p.chains);
@@ -240,13 +210,13 @@ export function buildFarmPlan(p, impliedValue, launchOdds, ageDays) {
   const tierEv = (impliedValue * 0.03) / estActiveWallets;
   const grossEv = Math.min((proRataEv + tierEv) * launchOdds, minCapital * 0.35);
 
-  // Net 90-day capital friction: yield-bearing deposits earn base APY while farming (0.25% slippage/lockup spread),
-  // active DEX/Derivatives LP incurs 0.35% rebalance friction, idle deposits incur 0.50% financing spread.
   const yieldBearing = ['Lending', 'CDP', 'Yield', 'Yield Aggregator', 'Risk Curators', 'Onchain Capital Allocator', 'RWA', 'Basis Trading'].includes(cat);
   const frictionRate = yieldBearing ? 0.0025 : (cat === 'Dexs' || cat === 'Derivatives' || cat === 'Perps') ? 0.0035 : 0.005;
   const oppCost = Number((minCapital * frictionRate).toFixed(2));
   const netEv = Math.round((grossEv - totalGas - oppCost) * 100) / 100;
   const evPerHour = Math.round((netEv / estHours) * 100) / 100;
+  const annualizedRoiPct = Number((((netEv / minCapital) * (365 / 90)) * 100).toFixed(1));
+  const dilutionRisk = p.tvl_usd >= 500_000_000 ? 'HIGH' : p.tvl_usd >= 100_000_000 ? 'MED' : 'LOW';
 
   const flags = [];
   if (p.change_7d !== null && p.change_7d <= -15) {
@@ -258,11 +228,11 @@ export function buildFarmPlan(p, impliedValue, launchOdds, ageDays) {
   if (cat === 'Risk Curators' || cat === 'Onchain Capital Allocator' || cat === 'Yield') {
     flags.push('Curator/vault admin role risk — inspect timelock delay and strategy whitelist permissions');
   }
-  if (isSolana) {
-    flags.push('Solana SPL check — verify program upgrade authority, freeze/mint flags & Token-2022 hooks');
-  } else {
-    flags.push('EVM contract check — confirm verified explorer source, proxy admin multisig & withdraw path');
-  }
+  flags.push(
+    isSolana
+      ? 'Solana SPL check — verify program upgrade authority, freeze/mint flags & Token-2022 hooks'
+      : 'EVM contract check — confirm verified explorer source, proxy admin multisig & withdraw path',
+  );
 
   const securityTier =
     (p.change_7d !== null && p.change_7d <= -20) || (ageDays !== null && ageDays < 60)
@@ -289,12 +259,12 @@ export function buildFarmPlan(p, impliedValue, launchOdds, ageDays) {
     ? `Pre-deposit audit (${securityTier} risk): inspect ${p.name}'s Solana program upgrade authority, confirm no freeze/permanent-delegate Token-2022 hooks, and test a $20 withdraw before full size`
     : `Pre-deposit audit (${securityTier} risk): confirm verified contract source on ${chain}, check proxy admin multisig/timelock, and run a $25 deposit-and-withdraw dry run first`;
 
-  const cadenceStep = `Execution budget: route via ${chain} (~$${totalGas.toFixed(2)} est. total gas across 12 weeks, ~${estHours.toFixed(1)}h total time, $${oppCost.toFixed(0)} 90d opp-cost) — expected net EV ${netEv >= 0 ? '+' : '-'}$${Math.abs(netEv).toFixed(2)} (${evPerHour >= 0 ? '+' : '-'}$${Math.abs(evPerHour).toFixed(2)}/hr, verdict: ${verdict})`;
+  const cadenceStep = `Execution budget: route via ${chain} (~$${totalGas.toFixed(2)} est. gas across 12 wks, ~${estHours.toFixed(1)}h time, $${oppCost.toFixed(0)} 90d friction, ${dilutionRisk} TVL dilution) — net EV ${netEv >= 0 ? '+' : '-'}$${Math.abs(netEv).toFixed(2)} (${evPerHour >= 0 ? '+' : '-'}$${Math.abs(evPerHour).toFixed(2)}/hr, ${annualizedRoiPct >= 0 ? '+' : ''}${annualizedRoiPct}% ann., ${verdict})`;
 
   const monitorStep =
     p.change_7d !== null && p.change_7d < -10
       ? `Risk trigger: ${p.name} saw ${p.change_7d.toFixed(1)}% 7d TVL drawdown; pause top-ups until 7d TVL stabilizes and exit immediately if TVL drops another 25%`
-      : `Snapshot discipline: track ${p.name}'s ${fmtUsdShort(p.tvl_usd)} TVL and peer token odds (${Math.round(launchOdds * 100)}% in ${cat}); rebalance biweekly and exit if TGE terms dilute small wallets`;
+      : `Snapshot discipline: track ${p.name}'s ${fmtUsdShort(p.tvl_usd)} TVL and peer token odds (${Math.round(launchOdds * 100)}% in ${cat}, ~${estActiveWallets.toLocaleString('en-US')} est. active wallets); exit if TGE terms dilute small wallets`;
 
   const claimStep = `Position tracking: keep a dedicated farming wallet on ${chain}, log deposit tx hashes, review governance/points disclosures monthly, and revoke excess token approvals after exit`;
 
@@ -307,6 +277,9 @@ export function buildFarmPlan(p, impliedValue, launchOdds, ageDays) {
       est_hours: estHours,
       expected_ev_usd: netEv,
       ev_per_hour_usd: evPerHour,
+      ann_roi_pct: annualizedRoiPct,
+      dilution_risk: dilutionRisk,
+      est_wallets: estActiveWallets,
       security_tier: securityTier,
       security_flags: flags,
     },
@@ -314,17 +287,13 @@ export function buildFarmPlan(p, impliedValue, launchOdds, ageDays) {
   };
 }
 
-/** Deduplicate multi-version live-token issuers by gecko_id, run dual-CV selection, and score pre-token protocols. */
+/** Deduplicate multi-version live-token issuers by gecko_id, run triple-CV selection, and score pre-token protocols. */
 export function buildRadar(snapshot) {
   const asOfMs = Date.parse(`${snapshot.as_of}T00:00:00Z`);
   const watchlistSet = new Set(snapshot.watchlist);
 
-  // 1. Empirical category token-issuance odds across all protocols
   const catStats = new Map();
-  let globalTotal = 0;
-  let globalTokened = 0;
   let liveTokenCount = 0;
-
   for (const p of snapshot.protocols) {
     const hasToken = p.gecko_id !== null || p.symbol !== null;
     if (hasToken) liveTokenCount += 1;
@@ -333,12 +302,9 @@ export function buildRadar(snapshot) {
     st.total += 1;
     if (hasToken) st.tokened += 1;
     catStats.set(cat, st);
-    globalTotal += 1;
-    if (hasToken) globalTokened += 1;
   }
-  const globalTokenRate = globalTotal > 0 ? globalTokened / globalTotal : 0.5;
 
-  // 2. Deduplicate live-token calibration cohort by gecko_id (summing multi-version TVL)
+  // Deduplicate live-token calibration cohort by gecko_id (summing multi-version TVL)
   const byGecko = new Map();
   for (const p of snapshot.protocols) {
     if (!p.gecko_id || p.tvl_usd <= 0) continue;
@@ -401,9 +367,10 @@ export function buildRadar(snapshot) {
     }))
     .sort((a, b) => (a.gecko_id < b.gecko_id ? -1 : 1));
 
-  // 3. Dual held-out CV (Leave-One-Out CV + Chronological Walk-Forward CV)
+  // Triple Held-Out CV: (1) Leave-One-Out CV, (2) Chronological Walk-Forward CV, (3) Leave-One-Category-Out Block CV
   const dated = calib.filter((d) => d.listedMs !== null).sort((a, b) => a.listedMs - b.listedMs);
   const undated = calib.filter((d) => d.listedMs === null);
+  const distinctCalibCats = [...new Set(calib.map((c) => c.cat))].sort();
 
   const ablationResults = CANDIDATE_SPECS.map((spec) => {
     const looResiduals = [];
@@ -430,7 +397,23 @@ export function buildRadar(snapshot) {
     }
     const wfAbs = wfResiduals.map((r) => Math.abs(r)).sort((a, b) => a - b);
     const wfMdme = Math.pow(10, quantile(wfAbs, 0.5));
-    return { spec, loo: looMdme, wf: wfMdme, geo: Math.sqrt(looMdme * wfMdme), looResiduals, wfResiduals };
+
+    const catBlockResiduals = [];
+    for (const heldCat of distinctCalibCats) {
+      const train = calib.filter((r) => r.cat !== heldCat);
+      const test = calib.filter((r) => r.cat === heldCat);
+      if (train.length < 10 || test.length === 0) continue;
+      const w = fitHuber(train.map((r) => spec.features(r)), train.map((r) => r.y));
+      for (const ti of test) {
+        const xi = spec.features(ti);
+        const pred = xi.reduce((s, v, idx) => s + v * w[idx], 0);
+        catBlockResiduals.push(ti.y - pred);
+      }
+    }
+    const catAbs = catBlockResiduals.map((r) => Math.abs(r)).sort((a, b) => a - b);
+    const catMdme = Math.pow(10, quantile(catAbs, 0.5));
+
+    return { spec, loo: looMdme, wf: wfMdme, catCv: catMdme, geo: Math.sqrt(looMdme * wfMdme), looResiduals, wfResiduals, catBlockResiduals };
   });
 
   ablationResults.sort((a, b) => a.geo - b.geo);
@@ -442,7 +425,7 @@ export function buildRadar(snapshot) {
     if (idx < finalWeights.length) weightMap[t] = Number(finalWeights[idx].toFixed(4));
   });
 
-  // 80% Conformal prediction multipliers + out-of-sample Range Honesty audit on BOTH LOO and Walk-Forward
+  // Global + Category-Adaptive EB 80% Conformal Intervals
   const sortedSignedRes = [...winner.looResiduals].sort((a, b) => a - b);
   const q10Log = quantile(sortedSignedRes, 0.1);
   const q90Log = quantile(sortedSignedRes, 0.9);
@@ -450,6 +433,23 @@ export function buildRadar(snapshot) {
   const confHighMult = Math.pow(10, q90Log);
   const looCov80Pct = Number(((winner.looResiduals.filter((r) => r >= q10Log && r <= q90Log).length / Math.max(1, winner.looResiduals.length)) * 100).toFixed(1));
   const wfCov80Pct = Number(((winner.wfResiduals.filter((r) => r >= q10Log && r <= q90Log).length / Math.max(1, winner.wfResiduals.length)) * 100).toFixed(1));
+  const catCov80Pct = Number(((winner.catBlockResiduals.filter((r) => r >= q10Log && r <= q90Log).length / Math.max(1, winner.catBlockResiduals.length)) * 100).toFixed(1));
+
+  // Category dispersion shrinkage (widens conformal range in noisy categories, tightens in homogeneous ones, shrunk k=8 to global)
+  const catResByCat = new Map();
+  calib.forEach((c, idx) => {
+    const arr = catResByCat.get(c.cat) ?? [];
+    arr.push(Math.abs(winner.looResiduals[idx]));
+    catResByCat.set(c.cat, arr);
+  });
+  const globalMad = quantile(calib.map((_, idx) => Math.abs(winner.looResiduals[idx])).sort((a, b) => a - b), 0.5) || 0.3;
+  const catDispScale = new Map();
+  for (const [cat, arr] of catResByCat.entries()) {
+    arr.sort((a, b) => a - b);
+    const localMad = quantile(arr, 0.5);
+    const shrunkMad = (arr.length * localMad + 8 * globalMad) / (arr.length + 8);
+    catDispScale.set(cat, Math.max(0.82, Math.min(1.28, shrunkMad / globalMad)));
+  }
 
   const allPeerComps = calib
     .map((c) => ({
@@ -463,7 +463,6 @@ export function buildRadar(snapshot) {
     }))
     .sort((a, b) => b.mcap_usd - a.mcap_usd);
 
-  // 4. Separate clean pre-token cohort (Watchlist 40 + Early Discovery) vs Excluded Wrappers
   let excludedWrappers = 0;
   const targets = [];
   for (const p of snapshot.protocols) {
@@ -474,7 +473,6 @@ export function buildRadar(snapshot) {
     }
   }
 
-  // 4b. Fit right-censoring-adjusted Bayes survival peer token-issuance odds on matured peers (age >= 365d) & LOO Brier CV
   const datedCalibAges = rawCalib
     .filter((g) => g.minListedMs !== null)
     .map((g) => Math.max(1, Math.round((asOfMs - g.minListedMs) / 86_400_000)))
@@ -500,7 +498,6 @@ export function buildRadar(snapshot) {
   }
   const oddsBrierSkillPct = Number(((1 - brierLoo / Math.max(1e-6, brierBase)) * 100).toFixed(1));
 
-  // 5. Score every pre-token target with the dual-CV winning specification
   const scoredRows = targets.map(({ p, tier }) => {
     const cat = p.category ?? 'Uncategorized';
     const ageDays = daysBetween(p.listed_at, asOfMs);
@@ -525,6 +522,10 @@ export function buildRadar(snapshot) {
     const chainsMult = Number(Math.pow(10, wChains * featInput.xChains).toFixed(3));
     const ageMult = Number(Math.pow(10, wAge * featInput.xAge).toFixed(3));
     const catMult = Number(Math.pow(10, catShift).toFixed(3));
+
+    const disp = catDispScale.get(cat) ?? 1.0;
+    const rowLow = Math.max(50_000, Math.round(impliedValue * Math.pow(10, q10Log * disp)));
+    const rowHigh = Math.round(impliedValue * Math.pow(10, q90Log * disp));
 
     const st = catStats.get(cat) ?? { total: 0, tokened: 0 };
     const fittedOdds = fullOddsModel.predictConditional(cat, ageDays);
@@ -553,8 +554,8 @@ export function buildRadar(snapshot) {
       change_7d: p.change_7d,
       listed_at: p.listed_at,
       age_days: ageDays,
-      conformal_low_usd: Math.max(50_000, Math.round(impliedValue * confLowMult)),
-      conformal_high_usd: Math.round(impliedValue * confHighMult),
+      conformal_low_usd: rowLow,
+      conformal_high_usd: rowHigh,
       implied_multiple: Number((impliedValue / Math.max(1, p.tvl_usd)).toFixed(2)),
       peer_token_odds: launchOdds,
       peer_tokened_count: st.tokened,
@@ -582,6 +583,7 @@ export function buildRadar(snapshot) {
     terms: a.spec.terms,
     loo_mdme: Number(a.loo.toFixed(2)),
     wf_mdme: Number(a.wf.toFixed(2)),
+    cat_mdme: Number(a.catCv.toFixed(2)),
     geo_mdme: Number(a.geo.toFixed(2)),
     selected: a.spec.id === winner.spec.id,
   }));
@@ -599,6 +601,7 @@ export function buildRadar(snapshot) {
       excluded_wrappers: excludedWrappers,
       calibration_issuers: calib.length,
       dated_calibration_issuers: dated.length,
+      calibration_categories: distinctCalibCats.length,
     },
     model: {
       selected_id: winner.spec.id,
@@ -607,10 +610,12 @@ export function buildRadar(snapshot) {
       weights: weightMap,
       loo_mdme: Number(winner.loo.toFixed(2)),
       wf_mdme: Number(winner.wf.toFixed(2)),
+      cat_mdme: Number(winner.catCv.toFixed(2)),
       conformal_p10_mult: Number(confLowMult.toFixed(3)),
       conformal_p90_mult: Number(confHighMult.toFixed(3)),
       loo_cov80_pct: looCov80Pct,
       wf_cov80_pct: wfCov80Pct,
+      cat_cov80_pct: catCov80Pct,
       odds_brier_loo: Number(brierLoo.toFixed(4)),
       odds_brier_base: Number(brierBase.toFixed(4)),
       odds_brier_skill_pct: oddsBrierSkillPct,

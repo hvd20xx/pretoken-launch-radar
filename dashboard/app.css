@@ -37,178 +37,38 @@ body {
   padding: 16px 22px 28px;
 }
 
-/* Masthead */
-.mast {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 16px;
-  border-top: 4px solid var(--rule-strong);
-  border-bottom: 2px solid var(--rule-strong);
-  padding: 10px 0 11px;
-  margin-bottom: 12px;
-}
-.mast-kicker {
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: 1.3px;
-  text-transform: uppercase;
-  color: var(--teal);
-  margin-bottom: 2px;
-}
-.mast h1 {
-  font-family: var(--serif);
-  font-size: 27px;
-  font-weight: 900;
-  letter-spacing: -0.4px;
-  line-height: 1.08;
-}
-.mast-sub {
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 3px;
-}
-.mast-meta {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.chip {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
-  padding: 4px 9px;
-  border: 1px solid var(--rule);
-  background: var(--surface);
-  color: var(--ink);
-  border-radius: 3px;
-}
-.chip.dark {
-  background: var(--ink);
-  color: #FFFDF9;
-  border-color: var(--ink);
-}
+.mast { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; border-top: 4px solid var(--rule-strong); border-bottom: 2px solid var(--rule-strong); padding: 10px 0 11px; margin-bottom: 12px; }
+.mast-kicker { font-size: 10.5px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: var(--teal); margin-bottom: 2px; }
+.mast h1 { font-family: var(--serif); font-size: 27px; font-weight: 900; letter-spacing: -0.4px; line-height: 1.08; }
+.mast-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.mast-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.chip { font-family: var(--mono); font-size: 11px; font-weight: 700; padding: 4px 9px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); border-radius: 3px; }
+.chip.dark { background: var(--ink); color: #FFFDF9; border-color: var(--ink); }
 
-/* KPI & Integrity Strip */
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.kpi {
-  background: var(--surface);
-  border: 1px solid var(--rule);
-  border-top: 3px solid var(--ink);
-  padding: 9px 12px;
-}
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 10px; }
+.kpi { background: var(--surface); border: 1px solid var(--rule); border-top: 3px solid var(--ink); padding: 9px 12px; }
 .kpi.teal { border-top-color: var(--teal); }
 .kpi.emerald { border-top-color: var(--emerald); }
 .kpi.amber { border-top-color: var(--amber); }
-.kpi-label {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.9px;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.kpi-val {
-  font-family: var(--mono);
-  font-size: 20px;
-  font-weight: 800;
-  margin: 2px 0;
-  letter-spacing: -0.5px;
-}
-.kpi-sub {
-  font-size: 11px;
-  color: var(--muted);
-}
+.kpi-label { font-size: 10px; font-weight: 800; letter-spacing: 0.9px; text-transform: uppercase; color: var(--muted); }
+.kpi-val { font-family: var(--mono); font-size: 18.5px; font-weight: 800; margin: 2px 0; letter-spacing: -0.5px; }
+.kpi-sub { font-size: 11px; color: var(--muted); }
 
-/* Integrity / Funnel + Model Strip */
-.integrity {
-  display: grid;
-  grid-template-columns: 1.25fr 1.55fr;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-.panel {
-  background: var(--surface);
-  border: 1px solid var(--rule);
-  padding: 10px 12px;
-}
-.panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 7px;
-}
-.panel-title {
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: 0.9px;
-  text-transform: uppercase;
-  color: var(--ink);
-}
-.funnel-bar {
-  display: flex;
-  height: 11px;
-  width: 100%;
-  border-radius: 2px;
-  overflow: hidden;
-  border: 1px solid var(--rule);
-  margin-bottom: 7px;
-}
+.integrity { display: grid; grid-template-columns: 1.18fr 1.62fr; gap: 10px; margin-bottom: 12px; }
+.panel { background: var(--surface); border: 1px solid var(--rule); padding: 10px 12px; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; }
+.panel-title { font-size: 10.5px; font-weight: 800; letter-spacing: 0.9px; text-transform: uppercase; color: var(--ink); }
+.funnel-bar { display: flex; height: 11px; width: 100%; border-radius: 2px; overflow: hidden; border: 1px solid var(--rule); margin-bottom: 7px; }
 .f-wl { background: var(--emerald); }
 .f-early { background: var(--teal); }
 .f-live { background: #8E9AA7; }
 .f-excl { background: #D2C8B8; }
-.funnel-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  font-size: 11px;
-  color: var(--muted);
-}
-.dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 4px;
-  vertical-align: middle;
-}
-.formula-line {
-  font-family: var(--mono);
-  font-size: 11.5px;
-  background: var(--surface-alt);
-  border: 1px solid var(--rule);
-  padding: 5px 8px;
-  margin-bottom: 6px;
-  color: var(--ink);
-  overflow-x: auto;
-  white-space: nowrap;
-}
-.ablation-mini {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-}
-.abl-tag {
-  padding: 2px 6px;
-  border: 1px solid var(--rule);
-  background: var(--bg);
-  color: var(--muted);
-  border-radius: 2px;
-}
-.abl-tag.win {
-  background: var(--emerald-bg);
-  border-color: var(--emerald);
-  color: var(--emerald);
-  font-weight: 700;
-}
+.funnel-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--muted); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.formula-line { font-family: var(--mono); font-size: 11.5px; background: var(--surface-alt); border: 1px solid var(--rule); padding: 5px 8px; margin-bottom: 6px; color: var(--ink); overflow-x: auto; white-space: nowrap; }
+.ablation-mini { display: flex; flex-wrap: wrap; gap: 5px; font-family: var(--mono); font-size: 10px; }
+.abl-tag { padding: 2px 5px; border: 1px solid var(--rule); background: var(--bg); color: var(--muted); border-radius: 2px; }
+.abl-tag.win { background: var(--emerald-bg); border-color: var(--emerald); color: var(--emerald); font-weight: 700; }
 
 /* Controls Toolbar */
 .toolbar {
